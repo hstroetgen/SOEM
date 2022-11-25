@@ -256,6 +256,7 @@ int eeprom_read(int slave, int start, int length)
 int eeprom_write(int slave, int start, int length)
 {
    int i, dc = 0;
+   int ret = 0;
    uint16 aiadr, *wbuf;
    uint8 eepctl;
 
@@ -271,7 +272,11 @@ int eeprom_write(int slave, int start, int length)
       wbuf = (uint16 *)&ebuf[0];
       for (i = start ; i < (start + length) ; i+=2)
       {
-         ec_writeeepromAP(aiadr, i >> 1 , *(wbuf + (i >> 1)), EC_TIMEOUTEEP);
+         ret = ec_writeeepromAP(aiadr, i >> 1 , *(wbuf + (i >> 1)), EC_TIMEOUTEEP);
+         if (ret == 0)
+         {
+            return -1;
+         }
          if (++dc >= 100)
          {
             dc = 0;
@@ -310,9 +315,10 @@ int eeprom_writealias(int slave, int alias, uint16 crc)
    return 0;
 }
 
-void eepromtool(char *ifname, int slave, int mode, char *fname)
+int eepromtool(char *ifname, int slave, int mode, char *fname)
 {
    int w, rc = 0, estart, esize;
+   int return_value = 0, ret = 0;
    uint16 *wbuf;
 
    /* initialise SOEM, bind socket to ifname */
@@ -381,14 +387,22 @@ void eepromtool(char *ifname, int slave, int mode, char *fname)
                   printf("Busy");
                   fflush(stdout);
                   tstart = osal_current_time();
-                  eeprom_write(slave, estart, esize);
+                  ret = eeprom_write(slave, estart, esize);
                   tend = osal_current_time();
                   osal_time_diff(&tstart, &tend, &tdif);
 
-                  printf("\nTotal EEPROM write time :%ldms\n", (tdif.usec+(tdif.sec*1000000L)) / 1000);
+                  if (ret == -1) {
+                    printf("Writing to EEPROM failed\n");
+                    return_value = 1;
+                  } else {
+                    printf("\nTotal EEPROM write time :%ldms\n", (tdif.usec+(tdif.sec*1000000L)) / 1000);
+                  }
                }
                else
+               {
                   printf("Error reading file, abort.\n");
+                  return_value = 1;
+               }
             }
             if (mode == MODE_WRITEALIAS)
             {
@@ -403,22 +417,26 @@ void eepromtool(char *ifname, int slave, int mode, char *fname)
                   else
                   {
                      printf("Alias not written\n");
+                     return_value = 1;
                   }
                }
                else
                {
                   printf("Could not read slave EEPROM");
+                  return_value = 1;
                }
             }
          }
          else
          {
             printf("Slave number outside range.\n");
+            return_value = 1;
          }
       }
       else
       {
          printf("No slaves found!\n");
+         return_value = 1;
       }
       printf("End, close socket\n");
       /* stop SOEM, close socket */
@@ -427,11 +445,14 @@ void eepromtool(char *ifname, int slave, int mode, char *fname)
    else
    {
       printf("No socket connection on %s\nExcecute as root\n",ifname);
+      return_value = 1;
    }
+   return return_value;
 }
 
 int main(int argc, char *argv[])
 {
+   int return_value = 0;
    printf("SOEM (Simple Open EtherCAT Master)\nEEPROM tool\n");
 
    mode = MODE_NONE;
@@ -452,7 +473,7 @@ int main(int argc, char *argv[])
          }
       }
       /* start tool */
-      eepromtool(argv[1],slave,mode,argv[4]);
+      return_value = eepromtool(argv[1],slave,mode,argv[4]);
    }
    else
    {
@@ -480,5 +501,5 @@ int main(int argc, char *argv[])
 
    printf("End program\n");
 
-   return (0);
+   return (return_value);
 }
